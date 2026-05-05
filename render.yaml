@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: worksync-pro-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: worksync-pro-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLIENT_URL
+        sync: false
+
+databases:
+  - name: worksync-pro-db
+    databaseName: worksync_pro
+    user: worksync_pro_user

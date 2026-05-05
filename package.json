@@ -1,0 +1,12 @@
+{
+  "name": "worksync-pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WorkSync Pro team dashboard",
+  "scripts": {
+    "start": "node scripts/dev.js",
+    "backend": "node backend/server.js",
+    "frontend": "npm.cmd --prefix frontend start",
+    "build": "npm.cmd --prefix frontend run build"
+  }
+}
