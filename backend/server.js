@@ -10,18 +10,12 @@ const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET;
 const DATABASE_URL = process.env.DATABASE_URL;
 
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET is required. Add it to your hosting environment variables.');
-}
-
-if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL is required. Connect a PostgreSQL database first.');
-}
-
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+const pool = DATABASE_URL
+  ? new Pool({
+      connectionString: DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    })
+  : null;
 
 app.use(cors({
   origin: process.env.CLIENT_URL || '*'
@@ -35,6 +29,10 @@ const users = [
 ];
 
 const initDatabase = async () => {
+  if (!pool) {
+    throw new Error('DATABASE_URL is required. Add it to your hosting environment variables.');
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
@@ -125,6 +123,10 @@ const ensureDatabase = () => {
 };
 
 const authenticateToken = (req, res, next) => {
+  if (!JWT_SECRET) {
+    return res.status(500).json({ error: 'JWT_SECRET is missing from backend environment variables' });
+  }
+
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -183,7 +185,16 @@ const toTask = (row) => ({
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'worksync-pro-backend', database: 'postgresql' });
+  res.json({
+    status: 'ok',
+    service: 'worksync-pro-backend',
+    database: 'postgresql',
+    config: {
+      databaseUrlSet: Boolean(DATABASE_URL),
+      jwtSecretSet: Boolean(JWT_SECRET),
+      clientUrl: process.env.CLIENT_URL || '*'
+    }
+  });
 });
 
 app.use(asyncRoute(async (req, res, next) => {
