@@ -115,6 +115,15 @@ const asyncRoute = (handler) => (req, res, next) => {
   Promise.resolve(handler(req, res, next)).catch(next);
 };
 
+let databaseReady;
+
+const ensureDatabase = () => {
+  if (!databaseReady) {
+    databaseReady = initDatabase();
+  }
+  return databaseReady;
+};
+
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1];
@@ -176,6 +185,11 @@ const toTask = (row) => ({
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'worksync-pro-backend', database: 'postgresql' });
 });
+
+app.use(asyncRoute(async (req, res, next) => {
+  await ensureDatabase();
+  next();
+}));
 
 app.post('/api/login', asyncRoute(async (req, res) => {
   const username = String(req.body.username || '').trim().toUpperCase();
@@ -411,13 +425,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Server error' });
 });
 
-initDatabase()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`WorkSync Pro Backend running on http://localhost:${PORT}`);
+if (require.main === module) {
+  ensureDatabase()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`WorkSync Pro Backend running on http://localhost:${PORT}`);
+      });
+    })
+    .catch((err) => {
+      console.error('Failed to initialize database:', err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error('Failed to initialize database:', err);
-    process.exit(1);
-  });
+}
+
+module.exports = app;

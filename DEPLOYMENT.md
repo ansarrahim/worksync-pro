@@ -1,47 +1,71 @@
-# WorkSync Pro Deployment
+# WorkSync Pro Free Deployment
 
-Recommended setup:
+Recommended free setup:
 
-- Frontend: Vercel
-- Backend: Render Web Service
-- Database: Render PostgreSQL
+- Database: Aiven PostgreSQL free tier
+- Backend: Vercel project with root directory `backend`
+- Frontend: Vercel project with root directory `frontend`
 
-## Backend Environment Variables
+## 1. Backend on Vercel
 
-Set these in Render:
+Import the GitHub repo into Vercel and choose these settings:
+
+```text
+Project name: worksync-pro-backend
+Root directory: backend
+Framework preset: Other
+Build command: npm install
+Output directory: leave empty
+Install command: npm install
+```
+
+Environment variables:
 
 ```text
 NODE_ENV=production
-DATABASE_URL=<Render PostgreSQL internal database URL>
+DATABASE_URL=<your Aiven PostgreSQL connection URL>
 JWT_SECRET=<long random secret>
-CLIENT_URL=<your Vercel frontend URL>
+CLIENT_URL=*
 ```
 
-Render should run:
-
-```bash
-cd backend && npm install && npm start
-```
-
-## Frontend Environment Variables
-
-Set this in Vercel:
+After deployment, test:
 
 ```text
-REACT_APP_API_URL=<your Render backend URL>
+https://your-backend.vercel.app/api/health
 ```
 
-Vercel settings:
+## 2. Frontend on Vercel
+
+Import the same GitHub repo again and choose:
 
 ```text
+Project name: worksync-pro-frontend
 Root directory: frontend
+Framework preset: Create React App
 Build command: npm run build
 Output directory: build
+Install command: npm install
 ```
+
+Environment variable:
+
+```text
+REACT_APP_API_URL=https://your-backend.vercel.app
+```
+
+## 3. Lock CORS After Frontend Works
+
+After Vercel gives you the frontend URL, update backend env:
+
+```text
+CLIENT_URL=https://your-frontend.vercel.app
+```
+
+Then redeploy the backend.
 
 ## Data Storage
 
-Production data is stored in PostgreSQL, not on your laptop. The backend creates the required tables on first startup and seeds the three default users:
+All production data is stored in Aiven PostgreSQL. The backend creates tables automatically on first request and seeds:
 
 - SHAHKAR
 - ABRAR
