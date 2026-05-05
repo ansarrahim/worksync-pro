@@ -10,11 +10,24 @@ const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET;
 const DATABASE_URL = process.env.DATABASE_URL;
 
+const getDatabaseConfig = () => {
+  if (!DATABASE_URL) return null;
+
+  const databaseUrl = new URL(DATABASE_URL);
+  const isLocalDatabase = ['localhost', '127.0.0.1'].includes(databaseUrl.hostname);
+
+  // Hosted providers often include sslmode=require, which can override pg's SSL
+  // object and reject managed-provider certificates. We control SSL explicitly.
+  databaseUrl.searchParams.delete('sslmode');
+
+  return {
+    connectionString: databaseUrl.toString(),
+    ssl: isLocalDatabase ? false : { rejectUnauthorized: false }
+  };
+};
+
 const pool = DATABASE_URL
-  ? new Pool({
-      connectionString: DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-    })
+  ? new Pool(getDatabaseConfig())
   : null;
 
 app.use(cors({
