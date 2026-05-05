@@ -14,7 +14,7 @@ Import the GitHub repo into Vercel and choose these settings:
 Project name: worksync-pro-backend
 Root directory: backend
 Framework preset: Other
-Build command: npm install
+Build command: leave empty
 Output directory: leave empty
 Install command: npm install
 ```
