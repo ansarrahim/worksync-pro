@@ -3,12 +3,15 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET;
 const DATABASE_URL = process.env.DATABASE_URL;
+
+const isPostgresUrl = (value) => typeof value === 'string' && /^(postgres|postgresql):\/\//i.test(value);
 
 const getDatabaseConfig = () => {
   if (!DATABASE_URL) return null;
@@ -26,9 +29,28 @@ const getDatabaseConfig = () => {
   };
 };
 
-const pool = DATABASE_URL
+const postgresPool = isPostgresUrl(DATABASE_URL)
   ? new Pool(getDatabaseConfig())
   : null;
+
+let pgliteDbPromise;
+const getPgliteDb = async () => {
+  if (!pgliteDbPromise) {
+    pgliteDbPromise = (async () => {
+      const { PGlite } = await import('@electric-sql/pglite');
+      return new PGlite(path.join(__dirname, '.pgdata'));
+    })();
+  }
+  return pgliteDbPromise;
+};
+
+const db = {
+  query: async (sql, params) => {
+    if (postgresPool) return postgresPool.query(sql, params);
+    const pglite = await getPgliteDb();
+    return pglite.query(sql, params);
+  }
+};
 
 app.use(cors({
   origin: process.env.CLIENT_URL || '*'
@@ -42,11 +64,7 @@ const users = [
 ];
 
 const initDatabase = async () => {
-  if (!pool) {
-    throw new Error('DATABASE_URL is required. Add it to your hosting environment variables.');
-  }
-
-  await pool.query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -56,7 +74,7 @@ const initDatabase = async () => {
     )
   `);
 
-  await pool.query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS youtube_updates (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -69,7 +87,7 @@ const initDatabase = async () => {
     )
   `);
 
-  await pool.query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS trading_updates (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -82,7 +100,7 @@ const initDatabase = async () => {
     )
   `);
 
-  await pool.query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS discussions (
       id SERIAL PRIMARY KEY,
       category TEXT NOT NULL,
@@ -93,7 +111,7 @@ const initDatabase = async () => {
     )
   `);
 
-  await pool.query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS tasks (
       id SERIAL PRIMARY KEY,
       title TEXT NOT NULL,
@@ -111,7 +129,7 @@ const initDatabase = async () => {
 
   for (const user of users) {
     const hashedPassword = bcrypt.hashSync('password123', 10);
-    await pool.query(
+    await db.query(
       `INSERT INTO users (username, password, role)
        VALUES ($1, $2, $3)
        ON CONFLICT (username) DO NOTHING`,
@@ -119,7 +137,7 @@ const initDatabase = async () => {
     );
   }
 
-  console.log('PostgreSQL database ready');
+  console.log(postgresPool ? 'PostgreSQL database ready' : 'Local PGlite database ready');
 };
 
 const asyncRoute = (handler) => (req, res, next) => {
@@ -201,7 +219,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'worksync-pro-backend',
-    database: 'postgresql',
+    database: postgresPool ? 'postgresql' : 'pglite',
     config: {
       databaseUrlSet: Boolean(DATABASE_URL),
       jwtSecretSet: Boolean(JWT_SECRET),
@@ -219,7 +237,7 @@ app.post('/api/login', asyncRoute(async (req, res) => {
   const username = String(req.body.username || '').trim().toUpperCase();
   const { password } = req.body;
 
-  const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+  const result = await db.query('SELECT * FROM users WHERE username = $1', [username]);
   const user = result.rows[0];
   if (!user) return res.status(401).json({ error: 'Invalid username' });
 
@@ -234,7 +252,7 @@ app.post('/api/login', asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/youtube/updates', authenticateToken, asyncRoute(async (req, res) => {
-  const result = await pool.query(
+  const result = await db.query(
     'SELECT * FROM youtube_updates WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1',
     [req.user.id]
   );
@@ -249,7 +267,7 @@ app.get('/api/youtube/updates', authenticateToken, asyncRoute(async (req, res) =
 app.post('/api/youtube/updates', authenticateToken, asyncRoute(async (req, res) => {
   const { videosCreated, videosScheduled, videosNextWeek, notes } = req.body;
 
-  const result = await pool.query(
+  const result = await db.query(
     `INSERT INTO youtube_updates (user_id, videos_created, videos_scheduled, videos_next_week, notes, updated_at)
      VALUES ($1, $2, $3::jsonb, $4, $5, NOW())
      RETURNING id`,
@@ -260,7 +278,7 @@ app.post('/api/youtube/updates', authenticateToken, asyncRoute(async (req, res) 
 }));
 
 app.get('/api/trading/updates', authenticateToken, asyncRoute(async (req, res) => {
-  const result = await pool.query(
+  const result = await db.query(
     'SELECT * FROM trading_updates WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1',
     [req.user.id]
   );
@@ -275,7 +293,7 @@ app.get('/api/trading/updates', authenticateToken, asyncRoute(async (req, res) =
 app.post('/api/trading/updates', authenticateToken, asyncRoute(async (req, res) => {
   const { positionsOpen, positionsClosed, pnl, notes } = req.body;
 
-  const result = await pool.query(
+  const result = await db.query(
     `INSERT INTO trading_updates (user_id, positions_open, positions_closed, pnl, notes, updated_at)
      VALUES ($1, $2, $3, $4, $5, NOW())
      RETURNING id`,
@@ -286,7 +304,7 @@ app.post('/api/trading/updates', authenticateToken, asyncRoute(async (req, res) 
 }));
 
 app.get('/api/discussions/:category', authenticateToken, asyncRoute(async (req, res) => {
-  const result = await pool.query(
+  const result = await db.query(
     'SELECT * FROM discussions WHERE category = $1 ORDER BY created_at DESC LIMIT 50',
     [req.params.category]
   );
@@ -297,7 +315,7 @@ app.get('/api/discussions/:category', authenticateToken, asyncRoute(async (req, 
 app.post('/api/discussions', authenticateToken, asyncRoute(async (req, res) => {
   const { category, message } = req.body;
 
-  const result = await pool.query(
+  const result = await db.query(
     `INSERT INTO discussions (category, user_id, user_name, message)
      VALUES ($1, $2, $3, $4)
      RETURNING *`,
@@ -308,7 +326,7 @@ app.post('/api/discussions', authenticateToken, asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/tasks', authenticateToken, asyncRoute(async (req, res) => {
-  const result = await pool.query(`
+  const result = await db.query(`
     SELECT * FROM tasks
     ORDER BY
       CASE status
@@ -340,7 +358,7 @@ app.post('/api/tasks', authenticateToken, asyncRoute(async (req, res) => {
     return res.status(400).json({ error: 'Task title is required' });
   }
 
-  const result = await pool.query(
+  const result = await db.query(
     `INSERT INTO tasks (title, details, category, assigned_to, priority, due_date, created_by)
      VALUES ($1, $2, $3, $4, $5, NULLIF($6, '')::date, $7)
      RETURNING id`,
@@ -393,7 +411,7 @@ app.patch('/api/tasks/:id', authenticateToken, asyncRoute(async (req, res) => {
   }
 
   values.push(req.params.id);
-  const result = await pool.query(
+  const result = await db.query(
     `UPDATE tasks SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${values.length}`,
     values
   );
@@ -407,7 +425,7 @@ app.delete('/api/tasks/:id', authenticateToken, asyncRoute(async (req, res) => {
     return res.status(403).json({ error: 'Only managers can delete tasks' });
   }
 
-  const result = await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+  const result = await db.query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
   if (result.rowCount === 0) return res.status(404).json({ error: 'Task not found' });
   res.json({ success: true });
 }));
@@ -417,15 +435,15 @@ app.get('/api/dashboard/team', authenticateToken, asyncRoute(async (req, res) =>
     return res.status(403).json({ error: 'Only managers can view team data' });
   }
 
-  const usersResult = await pool.query('SELECT id, username, role FROM users ORDER BY id ASC');
+  const usersResult = await db.query('SELECT id, username, role FROM users ORDER BY id ASC');
   const teamData = {};
 
   for (const user of usersResult.rows) {
-    const youtubeResult = await pool.query(
+    const youtubeResult = await db.query(
       'SELECT * FROM youtube_updates WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1',
       [user.id]
     );
-    const tradingResult = await pool.query(
+    const tradingResult = await db.query(
       'SELECT * FROM trading_updates WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1',
       [user.id]
     );
