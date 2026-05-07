@@ -1,2 +1,3 @@
 .vercel
 .pgdata/
+.vercel-env-backend*
