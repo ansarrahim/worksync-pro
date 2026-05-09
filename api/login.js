@@ -1,29 +1,34 @@
-export default function handler(req, res) {
+import { db } from "./db.js";
+
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method not allowed" });
   }
 
   const { email, password } = req.body || {};
 
-  console.log("LOGIN REQUEST:", email);
+  try {
+    const result = await db.query(
+      "SELECT * FROM users WHERE email = $1 AND password = $2",
+      [email, password]
+    );
 
-  // SIMPLE FIXED USER (NO DB)
-  const user = {
-    email: "admin@test.com",
-    password: "123456"
-  };
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials"
+      });
+    }
 
-  if (email === user.email && password === user.password) {
     return res.status(200).json({
       success: true,
-      user: {
-        email
-      }
+      user: result.rows[0]
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      error: "Database error"
     });
   }
-
-  return res.status(401).json({
-    success: false,
-    message: "Invalid credentials"
-  });
 }
