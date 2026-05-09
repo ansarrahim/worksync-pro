@@ -60,5 +60,5 @@ process.on('SIGTERM', () => {
 });
 
 console.log('WorkSync Pro is starting...');
-console.log('Backend:  http://localhost:5000');
+console.log('Backend: production ready');
 console.log('Frontend: http://localhost:3000');
